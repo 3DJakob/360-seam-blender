@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ImageFilter
 import os
 import colorsys
 
@@ -17,6 +17,9 @@ def blend(image, original_filename, ramp_width):
     blended_image = image.copy()
     pixels = blended_image.load()
 
+    # Create a blurred image for sampling
+    blurred_image = image.filter(ImageFilter.GaussianBlur(20))
+
     # Loop through each horizontal pixel line
     for y in range(height):
         # Get the leftmost and rightmost pixel colors
@@ -27,16 +30,21 @@ def blend(image, original_filename, ramp_width):
         left_hls = colorsys.rgb_to_hls(*[c / 255.0 for c in left_pixel])
         right_hls = colorsys.rgb_to_hls(*[c / 255.0 for c in right_pixel])
 
-        # if left is pure black or pure white set the h and s values to the right pixel
-        if left_hls[1] == 0 or left_hls[1] == 1:
-            left_hls = (right_hls[0], left_hls[1], right_hls[2])
-        if right_hls[1] == 0 or right_hls[1] == 1:
-            right_hls = (left_hls[0], right_hls[1], left_hls[2])
+        left_blurred_pixel = blurred_image.getpixel((0, y))
+        right_blurred_pixel = blurred_image.getpixel((width - 1, y))
+        left_blurred_hls = colorsys.rgb_to_hls(*[c / 255.0 for c in left_blurred_pixel])
+        right_blurred_hls = colorsys.rgb_to_hls(*[c / 255.0 for c in right_blurred_pixel])
+
+        # if left is pure black or pure white set the h and s values to the right from blurred image
+        if left_blurred_hls[1] == 0 or left_blurred_hls[1] == 1:
+            left_blurred_hls = (right_blurred_hls[0], left_blurred_hls[1], right_blurred_hls[2])
+        if right_blurred_hls[1] == 0 or right_blurred_hls[1] == 1:
+            right_blurred_hls = (left_blurred_hls[0], right_blurred_hls[1], left_blurred_hls[2])
 
         # Calculate the difference in HLS values
-        h_diff = (left_hls[0] - right_hls[0]) / 2
-        l_diff = (left_hls[1] - right_hls[1]) / 2
-        s_diff = (left_hls[2] - right_hls[2]) / 2
+        h_diff = 0
+        l_diff = (left_blurred_hls[1] - right_blurred_hls[1]) / 2
+        s_diff = 0
 
         # Apply blending for the left ramp
         for x in range(min(ramp_width, width // 2)):
@@ -93,9 +101,14 @@ def blend(image, original_filename, ramp_width):
     save_image_as_jpeg(blended_image, original_filename)
 
 def save_image_as_jpeg(image, original_filename):
+    # Check if a watermark nadir.png exist and if it does add it on top
+    if os.path.exists("nadir.png"):
+        watermark = Image.open("nadir.png")
+        image.paste(watermark, (0, 0), watermark)
+
     # Generate a new filename by appending '_blended' to the original name
     base_name = os.path.splitext(os.path.basename(original_filename))[0]
-    new_filename = f"{base_name}_blended.jpg"
+    new_filename = f"{base_name}.jpg"
     # save in /output folder
     image.save(f"output/{new_filename}", "JPEG")
     print(f"Saved blended image as {new_filename}")
@@ -107,6 +120,8 @@ def open_images_and_apply_blend():
 
     # Iterate through the files and open images
     for file in files:
+        if file == "nadir.png":
+            continue
         # Check if the file is an image by looking at its extension
         if file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')):
             try:
